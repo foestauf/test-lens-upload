@@ -1,0 +1,54 @@
+name: "test-lens upload"
+description: "Upload coverage reports to test-lens"
+
+inputs:
+  file:
+    description: "Path to coverage file (auto-detected if omitted)"
+    required: false
+  api-url:
+    description: "test-lens API base URL"
+    required: false
+  no-oidc:
+    description: "Skip OIDC token auto-detection"
+    required: false
+    default: "false"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Download test-lens CLI
+      shell: bash
+      run: |
+        VERSION="${{ github.action_ref }}"
+        if [ -z "$VERSION" ] || [ "$VERSION" = "main" ]; then
+          VERSION=$(curl -s https://api.github.com/repos/foestauf/test-lens-upload/releases/latest | grep '"tag_name"' | sed 's/.*"tag_name": "\(.*\)".*/\1/')
+        fi
+        # Strip leading v for download URL
+        DL_VERSION="${VERSION#v}"
+        OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+        ARCH=$(uname -m)
+        case "$ARCH" in
+          x86_64) ARCH="amd64" ;;
+          aarch64|arm64) ARCH="arm64" ;;
+        esac
+        URL="https://github.com/foestauf/test-lens-upload/releases/download/${VERSION}/test-lens-upload_${DL_VERSION}_${OS}_${ARCH}.tar.gz"
+        echo "Downloading test-lens CLI from ${URL}"
+        curl -sL "$URL" | tar xz -C /usr/local/bin test-lens-upload
+        chmod +x /usr/local/bin/test-lens-upload
+
+    - name: Upload coverage
+      shell: bash
+      env:
+        TEST_LENS_API_URL: ${{ inputs.api-url }}
+      run: |
+        ARGS="upload"
+        if [ -n "${{ inputs.file }}" ]; then
+          ARGS="$ARGS --file ${{ inputs.file }}"
+        fi
+        if [ -n "${{ inputs.api-url }}" ]; then
+          ARGS="$ARGS --api-url ${{ inputs.api-url }}"
+        fi
+        if [ "${{ inputs.no-oidc }}" = "true" ]; then
+          ARGS="$ARGS --no-oidc"
+        fi
+        test-lens-upload $ARGS
