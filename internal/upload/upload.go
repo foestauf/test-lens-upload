@@ -12,12 +12,13 @@ import (
 )
 
 type Options struct {
-	APIURL    string
-	FilePath  string
-	RepoURL   string
-	CommitSHA string
-	Branch    string
-	NoOIDC    bool
+	APIURL      string
+	FilePath    string
+	RepoURL     string
+	CommitSHA   string
+	Branch      string
+	PackageName string
+	NoOIDC      bool
 }
 
 type Result struct {
@@ -49,6 +50,9 @@ func Upload(opts Options) (*Result, error) {
 	writer.WriteField("commitSha", opts.CommitSHA)
 	if opts.Branch != "" {
 		writer.WriteField("branch", opts.Branch)
+	}
+	if opts.PackageName != "" {
+		writer.WriteField("packageName", opts.PackageName)
 	}
 
 	writer.Close()

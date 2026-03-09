@@ -17,6 +17,16 @@ var candidatePaths = []string{
 // FindCoverageFile looks for common coverage file paths relative to dir.
 // Returns the absolute path of the first match, or empty string if none found.
 func FindCoverageFile(dir string) string {
+	return findInDir(dir)
+}
+
+// FindCoverageFileInDir searches for coverage files within a specific package
+// directory. Used for monorepo per-package discovery.
+func FindCoverageFileInDir(packageDir string) string {
+	return findInDir(packageDir)
+}
+
+func findInDir(dir string) string {
 	for _, candidate := range candidatePaths {
 		full := filepath.Join(dir, candidate)
 		if _, err := os.Stat(full); err == nil {

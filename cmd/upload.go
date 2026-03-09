@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/foestauf/test-lens-upload/internal/config"
 	"github.com/foestauf/test-lens-upload/internal/discover"
 	"github.com/foestauf/test-lens-upload/internal/git"
 	"github.com/foestauf/test-lens-upload/internal/upload"
@@ -17,6 +18,8 @@ var (
 	flagBranch    string
 	flagAPIURL    string
 	flagNoOIDC    bool
+	flagPackage   string
+	flagConfig    string
 )
 
 var uploadCmd = &cobra.Command{
@@ -31,7 +34,20 @@ Authentication:
     permissions:
       id-token: write
 
-  Use --no-oidc to skip OIDC and upload without authentication.`,
+  Use --no-oidc to skip OIDC and upload without authentication.
+
+Monorepo Support:
+  Use --package <name> to tag the upload with a package name.
+  Create a .testlens.yml in your repo root to define packages:
+
+    packages:
+      - name: api
+        path: apps/api
+      - name: web
+        path: apps/web
+
+  If a config exists and no --package is specified, all packages are
+  uploaded in sequence (auto-discovering coverage files per package path).`,
 	RunE: runUpload,
 }
 
@@ -42,6 +58,8 @@ func init() {
 	uploadCmd.Flags().StringVar(&flagBranch, "branch", "", "Branch name (auto-detected from git)")
 	uploadCmd.Flags().StringVar(&flagAPIURL, "api-url", "", "test-lens API base URL")
 	uploadCmd.Flags().BoolVar(&flagNoOIDC, "no-oidc", false, "Skip OIDC token auto-detection")
+	uploadCmd.Flags().StringVar(&flagPackage, "package", "", "Package name (for monorepo uploads)")
+	uploadCmd.Flags().StringVar(&flagConfig, "config", "", "Path to .testlens.yml config file")
 }
 
 func runUpload(cmd *cobra.Command, args []string) error {
@@ -75,10 +93,36 @@ func runUpload(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Resolve coverage file
+	// Load config if present
+	cfg, err := config.Load(".", flagConfig)
+	if err != nil {
+		return fmt.Errorf("loading config: %w", err)
+	}
+
+	// If --package is set, validate it against config (if config exists)
+	if flagPackage != "" && cfg != nil {
+		if _, err := cfg.FindPackage(flagPackage); err != nil {
+			return err
+		}
+	}
+
+	// Multi-package mode: config exists, no --file, no --package
+	if cfg != nil && len(cfg.Packages) > 0 && flagFile == "" && flagPackage == "" {
+		return uploadAllPackages(cfg, apiURL, repoURL, commitSHA, branch)
+	}
+
+	// Single upload mode
 	filePath := flagFile
 	if filePath == "" {
-		found := discover.FindCoverageFile(".")
+		searchDir := "."
+		// If --package and config, scope discovery to the package path
+		if flagPackage != "" && cfg != nil {
+			pkg, _ := cfg.FindPackage(flagPackage)
+			if pkg != nil {
+				searchDir = pkg.Path
+			}
+		}
+		found := discover.FindCoverageFile(searchDir)
 		if found == "" {
 			return fmt.Errorf("no coverage file found — pass --file explicitly")
 		}
@@ -93,17 +137,54 @@ func runUpload(cmd *cobra.Command, args []string) error {
 	fmt.Fprintf(os.Stderr, "Uploading %s for %s @ %s...\n", filePath, repoURL, commitSHA[:8])
 
 	result, err := upload.Upload(upload.Options{
-		APIURL:    apiURL,
-		FilePath:  filePath,
-		RepoURL:   repoURL,
-		CommitSHA: commitSHA,
-		Branch:    branch,
-		NoOIDC:    flagNoOIDC,
+		APIURL:      apiURL,
+		FilePath:    filePath,
+		RepoURL:     repoURL,
+		CommitSHA:   commitSHA,
+		Branch:      branch,
+		PackageName: flagPackage,
+		NoOIDC:      flagNoOIDC,
 	})
 	if err != nil {
 		return fmt.Errorf("upload failed: %w", err)
 	}
 
 	fmt.Fprintf(os.Stderr, "Upload accepted. ID: %s, status: %s\n", result.UploadID, result.Status)
+	return nil
+}
+
+func uploadAllPackages(cfg *config.Config, apiURL, repoURL, commitSHA, branch string) error {
+	var failed []string
+
+	for _, pkg := range cfg.Packages {
+		filePath := discover.FindCoverageFileInDir(pkg.Path)
+		if filePath == "" {
+			fmt.Fprintf(os.Stderr, "No coverage file found for package %s (path: %s), skipping\n", pkg.Name, pkg.Path)
+			continue
+		}
+
+		fmt.Fprintf(os.Stderr, "Uploading %s for package %s @ %s...\n", filePath, pkg.Name, commitSHA[:8])
+
+		result, err := upload.Upload(upload.Options{
+			APIURL:      apiURL,
+			FilePath:    filePath,
+			RepoURL:     repoURL,
+			CommitSHA:   commitSHA,
+			Branch:      branch,
+			PackageName: pkg.Name,
+			NoOIDC:      flagNoOIDC,
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Upload failed for package %s: %v\n", pkg.Name, err)
+			failed = append(failed, pkg.Name)
+			continue
+		}
+
+		fmt.Fprintf(os.Stderr, "Package %s uploaded. ID: %s, status: %s\n", pkg.Name, result.UploadID, result.Status)
+	}
+
+	if len(failed) > 0 {
+		return fmt.Errorf("upload failed for packages: %v", failed)
+	}
 	return nil
 }
