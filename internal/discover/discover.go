@@ -1,8 +1,10 @@
 package discover
 
 import (
+	"bufio"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 var candidatePaths = []string{
@@ -12,6 +14,7 @@ var candidatePaths = []string{
 	"coverage/clover.xml",
 	"coverage/coverage-final.json",
 	"build/reports/jacoco/test/jacocoTestReport.xml",
+	"coverage.out",
 }
 
 // FindCoverageFile looks for common coverage file paths relative to dir.
@@ -37,5 +40,42 @@ func findInDir(dir string) string {
 			return abs
 		}
 	}
+	return ""
+}
+
+// DetectFormat peeks at the first line of a coverage file to determine its format.
+// Returns one of: "lcov", "go", "cobertura", "jacoco", or empty string if unknown.
+func DetectFormat(filePath string) string {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	if !scanner.Scan() {
+		return ""
+	}
+	firstLine := strings.TrimSpace(scanner.Text())
+
+	switch {
+	case strings.HasPrefix(firstLine, "mode:"):
+		return "go"
+	case strings.HasPrefix(firstLine, "TN:") || strings.HasPrefix(firstLine, "SF:"):
+		return "lcov"
+	case strings.HasPrefix(firstLine, "<?xml"):
+		// Peek further to distinguish cobertura vs jacoco
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if strings.Contains(line, "<coverage") {
+				return "cobertura"
+			}
+			if strings.Contains(line, "<report") {
+				return "jacoco"
+			}
+		}
+		return "cobertura"
+	}
+
 	return ""
 }

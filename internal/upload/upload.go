@@ -18,6 +18,7 @@ type Options struct {
 	CommitSHA   string
 	Branch      string
 	PackageName string
+	Format      string
 	NoOIDC      bool
 }
 
@@ -53,6 +54,9 @@ func Upload(opts Options) (*Result, error) {
 	}
 	if opts.PackageName != "" {
 		writer.WriteField("packageName", opts.PackageName)
+	}
+	if opts.Format != "" {
+		writer.WriteField("format", opts.Format)
 	}
 
 	writer.Close()

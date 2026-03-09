@@ -20,6 +20,7 @@ var (
 	flagNoOIDC    bool
 	flagPackage   string
 	flagConfig    string
+	flagFormat    string
 )
 
 var uploadCmd = &cobra.Command{
@@ -60,6 +61,7 @@ func init() {
 	uploadCmd.Flags().BoolVar(&flagNoOIDC, "no-oidc", false, "Skip OIDC token auto-detection")
 	uploadCmd.Flags().StringVar(&flagPackage, "package", "", "Package name (for monorepo uploads)")
 	uploadCmd.Flags().StringVar(&flagConfig, "config", "", "Path to .testlens.yml config file")
+	uploadCmd.Flags().StringVar(&flagFormat, "format", "", "Coverage format: lcov, go, cobertura, jacoco (auto-detected if omitted)")
 }
 
 func runUpload(cmd *cobra.Command, args []string) error {
@@ -134,6 +136,15 @@ func runUpload(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Auto-detect format if not explicitly set
+	format := flagFormat
+	if format == "" {
+		format = discover.DetectFormat(filePath)
+		if format != "" {
+			fmt.Fprintf(os.Stderr, "Auto-detected format: %s\n", format)
+		}
+	}
+
 	fmt.Fprintf(os.Stderr, "Uploading %s for %s @ %s...\n", filePath, repoURL, commitSHA[:8])
 
 	result, err := upload.Upload(upload.Options{
@@ -143,6 +154,7 @@ func runUpload(cmd *cobra.Command, args []string) error {
 		CommitSHA:   commitSHA,
 		Branch:      branch,
 		PackageName: flagPackage,
+		Format:      format,
 		NoOIDC:      flagNoOIDC,
 	})
 	if err != nil {
@@ -163,6 +175,15 @@ func uploadAllPackages(cfg *config.Config, apiURL, repoURL, commitSHA, branch st
 			continue
 		}
 
+		// Auto-detect format per package if not explicitly set
+		pkgFormat := flagFormat
+		if pkgFormat == "" {
+			pkgFormat = discover.DetectFormat(filePath)
+			if pkgFormat != "" {
+				fmt.Fprintf(os.Stderr, "Auto-detected format for %s: %s\n", pkg.Name, pkgFormat)
+			}
+		}
+
 		fmt.Fprintf(os.Stderr, "Uploading %s for package %s @ %s...\n", filePath, pkg.Name, commitSHA[:8])
 
 		result, err := upload.Upload(upload.Options{
@@ -172,6 +193,7 @@ func uploadAllPackages(cfg *config.Config, apiURL, repoURL, commitSHA, branch st
 			CommitSHA:   commitSHA,
 			Branch:      branch,
 			PackageName: pkg.Name,
+			Format:      pkgFormat,
 			NoOIDC:      flagNoOIDC,
 		})
 		if err != nil {
