@@ -32,9 +32,12 @@ runs:
           aarch64|arm64) ARCH="arm64" ;;
         esac
         URL="https://github.com/foestauf/test-lens-upload/releases/download/${VERSION}/test-lens-upload_${DL_VERSION}_${OS}_${ARCH}.tar.gz"
+        INSTALL_DIR="${RUNNER_TOOL_CACHE:-/usr/local/bin}"
+        mkdir -p "$INSTALL_DIR"
         echo "Downloading test-lens CLI from ${URL}"
-        curl -sL "$URL" | tar xz -C /usr/local/bin test-lens-upload
-        chmod +x /usr/local/bin/test-lens-upload
+        curl -sL "$URL" | tar xz -C "$INSTALL_DIR" test-lens-upload
+        chmod +x "$INSTALL_DIR/test-lens-upload"
+        echo "$INSTALL_DIR" >> "$GITHUB_PATH"
 
     - name: Upload coverage
       shell: bash
